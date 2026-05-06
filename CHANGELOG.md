@@ -8,6 +8,8 @@ All notable changes to cheat-on-content will be documented here.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-06
+
 ### Added — Codex 安装兼容
 
 - **`install.sh --codex`**：安装根路由 skill `cheat-on-content` 和 13 个子 skill 到 `~/.codex/skills/`
