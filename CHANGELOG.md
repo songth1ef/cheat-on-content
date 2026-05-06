@@ -8,6 +8,13 @@ All notable changes to cheat-on-content will be documented here.
 
 ## [Unreleased]
 
+### Added — Codex 安装兼容
+
+- **`install.sh --codex`**：安装根路由 skill `cheat-on-content` 和 13 个子 skill 到 `~/.codex/skills/`
+- **`install.sh --all`**：同时安装 Claude Code 和 Codex skill
+- **`uninstall.sh --codex` / `--all`**：对称卸载 Codex 或双端安装
+- **Codex 路由说明**：Codex 用自然语言触发同一套流程，不依赖 Claude Code 的 `/cheat-*` slash-command harness
+
 ### Added — Migration 系统（让长期迭代不打断老用户）
 
 - **`/cheat-migrate` skill**：把老用户 `.cheat-state.json` 从旧 `schema_version` 升级到当前 `LATEST_SCHEMA`。幂等、不跳版、失败停在断点

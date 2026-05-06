@@ -21,6 +21,17 @@ allowed-tools: Bash(*), Read, Write, Edit, Grep, Glob, Skill, mcp__llm-chat__cha
 
 本文件是**总协议 + 路由器**。具体每个阶段的工作流在 `skills/cheat-*/SKILL.md` 各子 skill 里。
 
+## Codex compatibility
+
+Codex 没有 Claude Code 的 slash-command harness。安装到 Codex 后，按自然语言触发同一套路由即可：
+
+- `初始化 cheat-on-content` → 读取并执行 `skills/cheat-init/SKILL.md`
+- `打分这篇 scripts/foo.md` → 读取并执行 `skills/cheat-score/SKILL.md`
+- `启动预测 scripts/foo.md` → 读取并执行 `skills/cheat-predict/SKILL.md`
+- `拍了 ...` / `已发布 ...` / `复盘 ...` / `升级 rubric` / `状态` → 分别读取对应 `skills/cheat-*/SKILL.md`
+
+执行时遵循本文件的三条原则和路由表；不要依赖 `/cheat-*` 命令是否存在。Claude Code 专用 hook（`.claude/settings.json`）仍只在 Claude Code 里自动触发；Codex 中需要用户主动说 `状态` 查看 buffer、待复盘和候选池。
+
 ---
 
 ## 三条不可妥协原则
