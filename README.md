@@ -67,6 +67,8 @@
 
 ## 📦 安装
 
+### Claude Code
+
 ```bash
 git clone https://github.com/XBuilderLAB/cheat-on-content.git
 cd cheat-on-content
@@ -75,13 +77,27 @@ bash install.sh
 
 13 个子 skill 软链接到 `~/.claude/skills/`。装一次，所有内容项目都能用。
 
-> 冻结版本：`bash install.sh --copy` / 卸载：`bash uninstall.sh`（不动你的内容数据）
+### Codex
+
+```bash
+git clone https://github.com/XBuilderLAB/cheat-on-content.git
+cd cheat-on-content
+bash install.sh --codex
+```
+
+Codex 会安装根路由 skill `cheat-on-content` + 13 个子 skill 到 `~/.codex/skills/`。如果当前 Codex 会话看不到新 skill，重开一次会话。
+
+> 同时安装 Claude Code + Codex：`bash install.sh --all`
+>
+> 冻结版本：`bash install.sh --copy` / `bash install.sh --codex --copy`
+>
+> 卸载：`bash uninstall.sh` / `bash uninstall.sh --codex`（不动你的内容数据）
 
 ---
 
 ## 🚀 第一次跑
 
-在你的内容项目目录里开 Claude Code，说：
+在你的内容项目目录里开 Claude Code 或 Codex，说：
 
 ```
 初始化 cheat-on-content
@@ -102,7 +118,7 @@ bash install.sh
 状态 / 抓热点 / 找选题 / 升级 rubric / 找对标
 ```
 
-每次开会话 hook 自动报告 buffer + 待复盘 + top 候选——你不用主动问。
+Claude Code 每次开会话 hook 自动报告 buffer + 待复盘 + top 候选——你不用主动问。Codex 当前没有等价 hook 自动注入，直接说 `状态` 可获得同样看板。
 
 完整工作流 + 子 skill 细节见 [SKILL.md](SKILL.md)。
 
