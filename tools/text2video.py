@@ -160,20 +160,27 @@ def load_bg_base(bg_dir, day_override=None):
     if not bg_dir or not os.path.isdir(bg_dir):
         return None
     wd = day_override if day_override is not None else datetime.date.today().weekday()  # 0=Mon
+    exts = ("jpg", "jpeg", "png", "JPG", "JPEG", "PNG")
+    # ① 优先按 <weekday>-* 命名精确选今天那张
     cand = []
-    for ext in ("jpg", "jpeg", "png"):
+    for ext in exts:
         cand += glob.glob(os.path.join(bg_dir, f"{wd}-*.{ext}"))
-    if not cand:  # 该星期缺图 → 任意一张兜底
-        for ext in ("jpg", "jpeg", "png"):
-            cand += sorted(glob.glob(os.path.join(bg_dir, f"*.{ext}")))
-    if not cand:
-        return None
-    img = Image.open(cand[0]).convert("RGB")
+    if cand:
+        pick = sorted(cand)[0]
+    else:
+        # ② 没有星期前缀 → 把目录里所有图按名排序，用 weekday 取模轮值（任意张数都能转）
+        allimg = []
+        for ext in exts:
+            allimg += glob.glob(os.path.join(bg_dir, f"*.{ext}"))
+        allimg = sorted(set(allimg))
+        if not allimg:
+            return None
+        pick = allimg[wd % len(allimg)]
+    img = Image.open(pick).convert("RGB")
     img = _cover(img, *BG_OVER)
-    img = img.filter(ImageFilter.GaussianBlur(6))       # 轻模糊：保留风景观感
-    img = ImageEnhance.Brightness(img).enhance(0.72)    # 仅轻微调暗（风景看得清；靠文字描边保可读，不靠暗罩）
-    img = ImageEnhance.Color(img).enhance(1.12)         # 稍提饱和，风景更好看
-    return img.convert("RGBA"), os.path.basename(cand[0])
+    img = img.filter(ImageFilter.GaussianBlur(2))       # 极轻模糊，几乎无感；照片满亮度，不加任何暗罩（用户 2026-06-13 定）
+    img = ImageEnhance.Color(img).enhance(1.06)         # 仅极轻提饱和；可读性全靠文字黑描边
+    return img.convert("RGBA"), os.path.basename(pick)
 
 def ken_burns(base, t, T):
     """从略大的背景底图里缓慢推近+平移裁出 1080x1920 当帧背景"""
