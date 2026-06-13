@@ -47,18 +47,32 @@ else:  # Linux
     FONT_REG  = [("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
                  ("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf", 0),
                  ("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", 0)]
+# bundled 可商用字体（Noto Sans SC, SIL OFL）—— 优先用它，跨平台一致 + 可商用嵌入
+_ENGINE_DIR = os.path.dirname(os.path.abspath(__file__))
+NOTO = os.path.join(_ENGINE_DIR, "fonts", "NotoSansSC.ttf")
+FONT_SCALE = 1.2  # 所有字体 ×1.2（用户 2026-06-13 定）
 _font_cache = {}
 def font(size, bold=False):
+    size = int(round(size * FONT_SCALE))
     key = (size, bold)
     if key in _font_cache: return _font_cache[key]
-    for path, idx in (FONT_BOLD if bold else FONT_REG):
-        if os.path.exists(path):
-            try: f = ImageFont.truetype(path, size, index=idx)
-            except Exception:
-                try: f = ImageFont.truetype(path, size)
-                except Exception: continue
-            _font_cache[key] = f; return f
-    f = ImageFont.load_default(); _font_cache[key] = f; return f
+    f = None
+    if os.path.exists(NOTO):                       # 可变字体：wght 700=Bold / 400=Regular
+        try:
+            f = ImageFont.truetype(NOTO, size)
+            try: f.set_variation_by_axes([700 if bold else 400])
+            except Exception: pass
+        except Exception:
+            f = None
+    if f is None:                                  # 回退系统字体（无 bundled 字体时）
+        for path, idx in (FONT_BOLD if bold else FONT_REG):
+            if os.path.exists(path):
+                try: f = ImageFont.truetype(path, size, index=idx); break
+                except Exception:
+                    try: f = ImageFont.truetype(path, size); break
+                    except Exception: continue
+    if f is None: f = ImageFont.load_default()
+    _font_cache[key] = f; return f
 
 def clean(text):
     text = text.replace("**", "").strip()
@@ -125,12 +139,39 @@ THEMES = {
                      glow=(229,72,69), dia_text=(30,30,30), dia_fill=(255,255,255)),
 }
 
-def draw_chrome(d, theme, kicker_text):
-    """画 kicker + 进度条底槽（两种背景模式共用）"""
+NICK = "歌贼王"
+_AVATAR = None
+def avatar_img():
+    """圆形头像（带白圈），算一次缓存。无则 False。"""
+    global _AVATAR
+    if _AVATAR is not None: return _AVATAR
+    p = os.path.join(_ENGINE_DIR, "brand", "avatar.jpg")
+    if not os.path.exists(p):
+        _AVATAR = False; return False
+    sz = 88
+    im = Image.open(p).convert("RGBA").resize((sz, sz), Image.LANCZOS)
+    mask = Image.new("L", (sz, sz), 0); ImageDraw.Draw(mask).ellipse([0, 0, sz-1, sz-1], fill=255)
+    out = Image.new("RGBA", (sz, sz), (0, 0, 0, 0)); out.paste(im, (0, 0), mask)
+    ImageDraw.Draw(out).ellipse([1, 1, sz-2, sz-2], outline=(255, 255, 255, 235), width=3)
+    _AVATAR = out; return out
+
+def draw_chrome(img, theme, kicker_text):
+    """画 kicker + 右上角头像昵称 + 进度条底槽（两种背景模式共用）"""
+    d = ImageDraw.Draw(img, "RGBA")
     kf = font(40, True); kw = d.textlength(kicker_text, font=kf)
     d.text(((W-kw)/2, 188), kicker_text, font=kf, fill=theme["kicker"],
-           stroke_width=2, stroke_fill=(0,0,0,170))
-    d.rounded_rectangle([90, 1720, W-90, 1730], radius=5, fill=(255,255,255,40))
+           stroke_width=2, stroke_fill=(0, 0, 0, 170))
+    # 右上角：头像 + 昵称「歌贼王」
+    av = avatar_img(); nf = font(30, True); nw = d.textlength(NICK, font=nf)
+    if av:
+        ax, ay = W - av.width - 40, 150
+        img.paste(av, (ax, ay), av)
+        d.text((ax - nw - 16, ay + (av.height - 36) // 2), NICK, font=nf,
+               fill=(255, 255, 255, 240), stroke_width=2, stroke_fill=(0, 0, 0, 180))
+    else:
+        d.text((W - nw - 40, 158), NICK, font=nf, fill=(255, 255, 255, 240),
+               stroke_width=2, stroke_fill=(0, 0, 0, 180))
+    d.rounded_rectangle([90, 1720, W-90, 1730], radius=5, fill=(255, 255, 255, 40))
 
 def base_layer(theme, kicker_text):
     """纯色/渐变静态层：背景 + chrome（每主题算一次，无照片时用）"""
@@ -144,7 +185,7 @@ def base_layer(theme, kicker_text):
         img = img.convert("RGBA")
     else:
         img = Image.new("RGBA", (W, H), theme["bg"] + (255,))
-    draw_chrome(ImageDraw.Draw(img, "RGBA"), theme, kicker_text)
+    draw_chrome(img, theme, kicker_text)
     return img
 
 # ---------- 照片背景（周一到周天轮值，Ken Burns 慢推 + 模糊 + 压暗，不抢文案）----------
@@ -363,8 +404,8 @@ def main():
             if use_photo:
                 # 照片背景：Ken Burns 慢推 + chrome（kicker/进度槽每帧画）
                 img = ken_burns(bg_base, t, T)
+                draw_chrome(img, theme, kicker)
                 d = ImageDraw.Draw(img, "RGBA")
-                draw_chrome(d, theme, kicker)
             else:
                 img = base.copy()
                 d = ImageDraw.Draw(img, "RGBA")
