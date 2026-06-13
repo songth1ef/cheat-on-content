@@ -36,8 +36,12 @@ allowed-tools: Read, Glob, Grep, Write, Bash
 - 入参可以是 **slug**（如 `2026-06-13-workspace-as-work-os`）或**直接的源文章路径**。
 - 博客仓是唯一母体，本地 checkout 路径**因机而异**（registry 里 `source.local_path` 是写它的那台机的值，别盲信）。动态解析：
   ```bash
+  # ① 先信 registry 的 local_path（仅当本机真存在）；② 常见 checkout 位置；③ find 兜底（articles 在 ~ 下约 7 层深，maxdepth 给足）
   BLOG=$(python3 -c "import json,os;p=json.load(open('platforms/registry.json'))['source']['local_path'];print(p if os.path.isdir(p) else '')" 2>/dev/null)
-  [ -n "$BLOG" ] || BLOG=$(find ~ -maxdepth 6 -type d -path '*/src/content/articles' 2>/dev/null | head -1 | sed 's#/src/content/articles##')
+  for c in ~/Desktop/code/github/blog ~/github/blog ~/code/blog ~/cy/blog; do
+    [ -n "$BLOG" ] && break; [ -d "$c/src/content/articles" ] && BLOG="$c"
+  done
+  [ -n "$BLOG" ] || BLOG=$(find ~ -maxdepth 8 -type d -path '*/src/content/articles' -prune 2>/dev/null | head -1 | sed 's#/src/content/articles##')
   ```
   - 中文源：`$BLOG/<zh_glob 去掉 *>/<slug>.md`（默认 `src/content/articles/<slug>.md`）
   - 英文源：`$BLOG/src/content/articles/en/<slug>.md`
