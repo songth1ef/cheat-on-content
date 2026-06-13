@@ -31,6 +31,7 @@ SUB_SKILLS=(
   cheat-predict
   cheat-shoot
   cheat-publish
+  cheat-distribute
   cheat-render
   cheat-retro
   cheat-bump
