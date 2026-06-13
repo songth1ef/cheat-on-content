@@ -128,7 +128,8 @@ THEMES = {
 def draw_chrome(d, theme, kicker_text):
     """画 kicker + 进度条底槽（两种背景模式共用）"""
     kf = font(40, True); kw = d.textlength(kicker_text, font=kf)
-    d.text(((W-kw)/2, 188), kicker_text, font=kf, fill=theme["kicker"])
+    d.text(((W-kw)/2, 188), kicker_text, font=kf, fill=theme["kicker"],
+           stroke_width=2, stroke_fill=(0,0,0,170))
     d.rounded_rectangle([90, 1720, W-90, 1730], radius=5, fill=(255,255,255,40))
 
 def base_layer(theme, kicker_text):
@@ -169,8 +170,9 @@ def load_bg_base(bg_dir, day_override=None):
         return None
     img = Image.open(cand[0]).convert("RGB")
     img = _cover(img, *BG_OVER)
-    img = img.filter(ImageFilter.GaussianBlur(14))      # 模糊：不抢注意力
-    img = ImageEnhance.Brightness(img).enhance(0.34)    # 压暗到 ~34%
+    img = img.filter(ImageFilter.GaussianBlur(6))       # 轻模糊：保留风景观感
+    img = ImageEnhance.Brightness(img).enhance(0.72)    # 仅轻微调暗（风景看得清；靠文字描边保可读，不靠暗罩）
+    img = ImageEnhance.Color(img).enhance(1.12)         # 稍提饱和，风景更好看
     return img.convert("RGBA"), os.path.basename(cand[0])
 
 def ken_burns(base, t, T):
@@ -224,6 +226,25 @@ def render_diagram(d, nodes, frac, theme, a):
             d.line([ax, by2+6, ax, ay2-8], fill=(br,bgc,bb,int(235*a)), width=4)
             d.polygon([(ax-13,ay2-13),(ax+13,ay2-13),(ax,ay2)],
                       fill=(br,bgc,bb,int(235*a)))
+
+def pop_line(img, text, fnt, cy, rgb, e, seg_a):
+    """整行一次性「弹出」：缩放(0.72→1)+淡入，e=本行入场进度(0..1)。不是逐字打字。"""
+    if e <= 0: return
+    ease = 1-(1-e)**2
+    scale = 0.72 + 0.28*ease
+    alpha = ease*seg_a
+    if alpha <= 0: return
+    m = ImageDraw.Draw(img)
+    tw = int(m.textlength(text, font=fnt)); asc, desc = fnt.getmetrics(); th = asc+desc
+    pad = 16
+    sp = Image.new("RGBA", (tw+2*pad, th+2*pad), (0,0,0,0))
+    ImageDraw.Draw(sp).text((pad, pad), text, font=fnt, fill=rgb+(255,),
+                            stroke_width=5, stroke_fill=(0,0,0,255))  # 黑描边：亮风景上也清晰
+    if scale < 0.999:
+        sp = sp.resize((max(1,int(sp.width*scale)), max(1,int(sp.height*scale))), Image.LANCZOS)
+    if alpha < 0.999:
+        sp.putalpha(sp.split()[3].point(lambda v: int(v*alpha)))
+    img.paste(sp, (int(W/2 - sp.width/2), int(cy + (th - sp.height)/2)), sp)
 
 def run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -359,16 +380,19 @@ def main():
                 htxt = segs[i]["cap"]
                 if htxt:
                     hf = font(48, True); hw = d.textlength(htxt, font=hf)
-                    d.text(((W-hw)/2, 492), htxt, font=hf, fill=(cr,cg,cb,calpha))
+                    d.text(((W-hw)/2, 492), htxt, font=hf, fill=(cr,cg,cb,calpha),
+                           stroke_width=3, stroke_fill=(0,0,0,calpha))
                 render_diagram(d, segs[i]["dnodes"], frac, theme, a)
             else:
-                # 大字幕（逐字弹出）
-                lh = int(csize*1.32); total_c = sum(len(l) for l in clines)
-                shown = take_chars(clines, math.ceil(total_c*frac))
-                block_h = len(clines)*lh; y0 = 560 + (760-block_h)//2
-                for k, ln in enumerate(shown):
-                    lw = d.textlength(ln, font=cf)
-                    d.text(((W-lw)/2, y0+k*lh), ln, font=cf, fill=(cr,cg,cb,calpha))
+                # 大字幕：整行「弹出」（不是逐字打字）；多行时一行接一行整条弹
+                lh = int(csize*1.32); nlines = len(clines)
+                block_h = nlines*lh; y0 = 560 + (760-block_h)//2
+                POP = 0.30                                   # 单行入场时长(s)
+                span = max(vd*0.45, 0.4)                     # 多行入场铺开的总时长
+                for k, ln in enumerate(clines):
+                    line_start = (k/nlines)*span if nlines > 1 else 0.0
+                    e = max(0.0, min((local-line_start)/POP, 1.0))
+                    pop_line(img, ln, cf, y0+k*lh, (cr,cg,cb), e, a)
 
             # 底部口播字幕
             olh = int(50*1.34); total_o = sum(len(l) for l in olines)
@@ -377,7 +401,8 @@ def main():
             orr,org,orb = theme["oral"]; oalpha = int(235*a)
             for k, ln in enumerate(oshown):
                 lw = d.textlength(ln, font=of)
-                d.text(((W-lw)/2, oy+k*olh), ln, font=of, fill=(orr,org,orb,oalpha))
+                d.text(((W-lw)/2, oy+k*olh), ln, font=of, fill=(orr,org,orb,oalpha),
+                       stroke_width=3, stroke_fill=(0,0,0,oalpha))
 
             # 进度条（全局连续）
             br,bg_,bb = theme["bar"]
