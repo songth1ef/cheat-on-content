@@ -4,14 +4,16 @@
 text2video.py v2 — 把 video-zh.md 风格分段脚本（[口播]/[画面]/[屏幕字]）
 渲染成带动效的竖屏短视频。
 
-动效：逐字弹出字幕 + 段间淡入淡出 + 背景轻动效（漂移光晕）。
-音频：macOS `say` 中文 TTS（人声优先清晰）+ ffmpeg 合成的极简环境配乐（压低混入）。
-依赖：macOS `say`、ffmpeg、Pillow。
+动效：逐字弹出字幕 + 段间淡入淡出 + 周轮值照片背景(Ken Burns 慢推+模糊+压暗) / 纯色时漂移光晕。
+音频：edge-tts 神经网络中文配音(4 音色每日轮值，跨平台) + ffmpeg 合成极简环境配乐(压低混入)。
+       edge-tts 失败时仅 macOS 回退本地 say。
+依赖：edge-tts、ffmpeg、Pillow（跨平台 Mac/Win/Linux）。
 
 用法：python3 text2video.py <script.md> <out_dir> [--themes dark,gradient,light] [--fps 25]
+      [--voice zh-CN-XxxNeural] [--no-bg | --bg-day 0..6 | --bg-dir <path>] [--kicker <text>]
 """
-import os, re, sys, math, datetime, platform, subprocess, tempfile, shutil
-from PIL import Image, ImageDraw, ImageFont
+import os, re, sys, math, glob, datetime, platform, subprocess, tempfile, shutil
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 _SYS = platform.system()  # Darwin / Windows / Linux
 
@@ -123,8 +125,14 @@ THEMES = {
                      glow=(229,72,69), dia_text=(30,30,30), dia_fill=(255,255,255)),
 }
 
+def draw_chrome(d, theme, kicker_text):
+    """画 kicker + 进度条底槽（两种背景模式共用）"""
+    kf = font(40, True); kw = d.textlength(kicker_text, font=kf)
+    d.text(((W-kw)/2, 188), kicker_text, font=kf, fill=theme["kicker"])
+    d.rounded_rectangle([90, 1720, W-90, 1730], radius=5, fill=(255,255,255,40))
+
 def base_layer(theme, kicker_text):
-    """静态层：背景 + kicker + 进度条底槽（每主题算一次）"""
+    """纯色/渐变静态层：背景 + chrome（每主题算一次，无照片时用）"""
     if theme["grad"]:
         top, bot = theme["grad"]; img = Image.new("RGB", (W, H)); px = img.load()
         for y in range(H):
@@ -135,11 +143,45 @@ def base_layer(theme, kicker_text):
         img = img.convert("RGBA")
     else:
         img = Image.new("RGBA", (W, H), theme["bg"] + (255,))
-    d = ImageDraw.Draw(img, "RGBA")
-    kf = font(40, True); kw = d.textlength(kicker_text, font=kf)
-    d.text(((W-kw)/2, 188), kicker_text, font=kf, fill=theme["kicker"])
-    d.rounded_rectangle([90, 1720, W-90, 1730], radius=5, fill=(255,255,255,40))
+    draw_chrome(ImageDraw.Draw(img, "RGBA"), theme, kicker_text)
     return img
+
+# ---------- 照片背景（周一到周天轮值，Ken Burns 慢推 + 模糊 + 压暗，不抢文案）----------
+def _cover(img, tw, th):
+    w, h = img.size; sc = max(tw/w, th/h)
+    img = img.resize((int(w*sc+0.5), int(h*sc+0.5)), Image.LANCZOS)
+    nw, nh = img.size; x = (nw-tw)//2; y = (nh-th)//2
+    return img.crop((x, y, x+tw, y+th))
+
+BG_OVER = int(W*1.1), int(H*1.1)  # 比成片略大，留 Ken Burns 平移/缩放余量
+def load_bg_base(bg_dir, day_override=None):
+    """取今日(或指定)星期的背景照片 → cover + 模糊 + 压暗。无则 None。"""
+    if not bg_dir or not os.path.isdir(bg_dir):
+        return None
+    wd = day_override if day_override is not None else datetime.date.today().weekday()  # 0=Mon
+    cand = []
+    for ext in ("jpg", "jpeg", "png"):
+        cand += glob.glob(os.path.join(bg_dir, f"{wd}-*.{ext}"))
+    if not cand:  # 该星期缺图 → 任意一张兜底
+        for ext in ("jpg", "jpeg", "png"):
+            cand += sorted(glob.glob(os.path.join(bg_dir, f"*.{ext}")))
+    if not cand:
+        return None
+    img = Image.open(cand[0]).convert("RGB")
+    img = _cover(img, *BG_OVER)
+    img = img.filter(ImageFilter.GaussianBlur(14))      # 模糊：不抢注意力
+    img = ImageEnhance.Brightness(img).enhance(0.34)    # 压暗到 ~34%
+    return img.convert("RGBA"), os.path.basename(cand[0])
+
+def ken_burns(base, t, T):
+    """从略大的背景底图里缓慢推近+平移裁出 1080x1920 当帧背景"""
+    bw, bh = base.size; p = (t/T) if T > 0 else 0.0
+    s = 1.0 + 0.06*p                                    # 慢推近
+    cw, ch = min(int(W/s), bw), min(int(H/s), bh)
+    mx, my = bw-cw, bh-ch
+    cx = int(mx*(0.5 + 0.4*math.sin(p*math.pi)))        # 缓慢横移
+    cy = int(my*(0.5 - 0.3*math.cos(p*math.pi*0.7)))
+    return base.crop((cx, cy, cx+cw, cy+ch)).resize((W, H), Image.LANCZOS).convert("RGBA")
 
 def glow_sprite(color):
     """半透明径向光晕精灵，用作背景轻动效"""
@@ -201,8 +243,15 @@ def main():
     if "--fps" in sys.argv: fps = int(sys.argv[sys.argv.index("--fps")+1])
     voice = sys.argv[sys.argv.index("--voice")+1] if "--voice" in sys.argv else todays_voice()
     kicker = sys.argv[sys.argv.index("--kicker")+1] if "--kicker" in sys.argv else "AI 文章 · 看完不费劲"
+    # 照片背景（周轮值）：默认引擎同目录 backgrounds/；--no-bg 关闭；--bg-day 0..6 钉星期
+    bg_dir = sys.argv[sys.argv.index("--bg-dir")+1] if "--bg-dir" in sys.argv \
+             else os.path.join(os.path.dirname(os.path.abspath(__file__)), "backgrounds")
+    bg_day = int(sys.argv[sys.argv.index("--bg-day")+1]) if "--bg-day" in sys.argv else None
+    bg_loaded = None if "--no-bg" in sys.argv else load_bg_base(bg_dir, bg_day)
+    bg_base = bg_loaded[0] if bg_loaded else None
     os.makedirs(out_dir, exist_ok=True)
     print(f"[voice] 今日值班音色: {voice}")
+    print(f"[bg] 背景照片: {bg_loaded[1] if bg_loaded else '无（用纯色/渐变）'}")
 
     segs = parse_segments(md); n = len(segs)
     for s in segs:
@@ -262,6 +311,8 @@ def main():
     for theme_name in themes:
         theme = THEMES[theme_name]
         base = base_layer(theme, kicker)
+        # 照片背景只用于深色主题（浅色主题深字压在暗照片上会看不清）
+        use_photo = (bg_base is not None) and (theme_name != "light")
         if theme["glow"] not in glow_cache:
             glow_cache[theme["glow"]] = glow_sprite(theme["glow"])
         glow = glow_cache[theme["glow"]]
@@ -281,13 +332,18 @@ def main():
             t = fr/fps
             i, local, vd, sd = seg_at(t)
             cap, cf, clines, csize, of, olines = seg_lines[i]
-            img = base.copy()
-            d = ImageDraw.Draw(img, "RGBA")
-
-            # 背景轻动效：漂移光晕
-            gx = int(W/2 + 280*math.sin(t*0.5) - 520)
-            gy = int(H*0.42 + 200*math.cos(t*0.37) - 520)
-            img.paste(glow, (gx, gy), glow)
+            if use_photo:
+                # 照片背景：Ken Burns 慢推 + chrome（kicker/进度槽每帧画）
+                img = ken_burns(bg_base, t, T)
+                d = ImageDraw.Draw(img, "RGBA")
+                draw_chrome(d, theme, kicker)
+            else:
+                img = base.copy()
+                d = ImageDraw.Draw(img, "RGBA")
+                # 纯色背景才加漂移光晕（照片背景本身已有质感，不叠）
+                gx = int(W/2 + 280*math.sin(t*0.5) - 520)
+                gy = int(H*0.42 + 200*math.cos(t*0.37) - 520)
+                img.paste(glow, (gx, gy), glow)
 
             # 段淡入淡出
             fin = min(local/0.35, 1.0)

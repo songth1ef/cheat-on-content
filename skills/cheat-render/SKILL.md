@@ -49,6 +49,14 @@ allowed-tools: Read, Bash, Glob, Grep
 3. **验收**：抽 1-2 帧确认（`ffmpeg -ss <t> -i out.mp4 -frames:v 1 chk.png` 后 Read），重点看流程图和字幕。
 4. **交付**：`open <out_dir>`（Mac）/ 直接给路径。**提醒用户成片不入 git**（见下）。
 
+## 背景：周一到周天照片轮值（Ken Burns + 压暗模糊）
+
+默认给视频铺一张**循环慢移的照片背景**：`tools/backgrounds/<0-6>-<day>.jpg` 按 `weekday()` 选今天那张，做 Ken Burns 慢推 + 高斯模糊 + 压暗到 ~34% → **ambient，绝不抢文案注意力**。深色主题专用（light 主题自动跳过用纯色）。
+
+- 选项：`--no-bg` 关掉用纯色；`--bg-day 0..6` 钉某天（0=周一）；`--bg-dir <path>` 换图库。
+- 换/补图：跑 `tools/backgrounds/fetch.sh`（Picsum CC0，免费免署名，幂等），或把任意 1188×2112+ 的 CC0 图命名 `<0-6>-*.jpg` 丢进 `tools/backgrounds/`。
+- 默认 7 张是风景/自然/建筑向；要人文/逛街等主题自行换图即可，文件名定星期。
+
 ## 配音：4 音色每日轮值
 
 `VOICES = [Xiaoxiao(暖女声), Yunxi(阳光男声), Yunyang(新闻男声), Xiaoyi(活泼女声)]`，
