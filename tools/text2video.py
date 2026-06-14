@@ -13,7 +13,7 @@ text2video.py v2 — 把 video-zh.md 风格分段脚本（[口播]/[画面]/[屏
       [--voice zh-CN-XxxNeural] [--no-bg | --bg-day 0..6 | --bg-dir <path>] [--kicker <text>]
 """
 import os, re, sys, math, glob, datetime, platform, subprocess, tempfile, shutil
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageOps
 
 _SYS = platform.system()  # Darwin / Windows / Linux
 
@@ -217,21 +217,16 @@ def load_bg_base(bg_dir, day_override=None):
         if not allimg:
             return None
         pick = allimg[wd % len(allimg)]
-    img = Image.open(pick).convert("RGB")
-    img = _cover(img, *BG_OVER)
-    img = img.filter(ImageFilter.GaussianBlur(2))       # 极轻模糊，几乎无感；照片满亮度，不加任何暗罩（用户 2026-06-13 定）
-    img = ImageEnhance.Color(img).enhance(1.06)         # 仅极轻提饱和；可读性全靠文字黑描边
+    img = Image.open(pick)
+    img = ImageOps.exif_transpose(img)                  # 按 EXIF 自动摆正——不手动翻转用户照片（用户 2026-06-14 定）
+    img = img.convert("RGB")
+    img = _cover(img, W, H)                             # 直接裁到成片尺寸，静态；不模糊，保清晰度
+    img = ImageEnhance.Color(img).enhance(1.04)         # 仅极轻提饱和；可读性全靠文字黑描边
     return img.convert("RGBA"), os.path.basename(pick)
 
 def ken_burns(base, t, T):
-    """从略大的背景底图里缓慢推近+平移裁出 1080x1920 当帧背景"""
-    bw, bh = base.size; p = (t/T) if T > 0 else 0.0
-    s = 1.0 + 0.06*p                                    # 慢推近
-    cw, ch = min(int(W/s), bw), min(int(H/s), bh)
-    mx, my = bw-cw, bh-ch
-    cx = int(mx*(0.5 + 0.4*math.sin(p*math.pi)))        # 缓慢横移
-    cy = int(my*(0.5 - 0.3*math.cos(p*math.pi*0.7)))
-    return base.crop((cx, cy, cx+cw, cy+ch)).resize((W, H), Image.LANCZOS).convert("RGBA")
+    """静态背景：去掉 Ken Burns 慢移/缩放（用户 2026-06-14 觉得晃动不舒服）。base 已是 WxH。"""
+    return base.copy()
 
 def glow_sprite(color):
     """半透明径向光晕精灵，用作背景轻动效"""
