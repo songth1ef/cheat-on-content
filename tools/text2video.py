@@ -164,11 +164,12 @@ def draw_chrome(img, theme, kicker_text):
     if av:
         ax, ay = W - av.width - 40, 150
         img.paste(av, (ax, ay), av)
-        d.text((ax - nw - 16, ay + (av.height - 36) // 2), NICK, font=nf,
-               fill=(255, 255, 255, 240), stroke_width=2, stroke_fill=(0, 0, 0, 180))
+        tx, ty = ax - nw - 16, ay + (av.height - 36) // 2
+        d.text((tx, ty+2), NICK, font=nf, fill=(0, 0, 0, 110))          # 淡投影，无描边
+        d.text((tx, ty), NICK, font=nf, fill=(255, 255, 255, 240))
     else:
-        d.text((W - nw - 40, 158), NICK, font=nf, fill=(255, 255, 255, 240),
-               stroke_width=2, stroke_fill=(0, 0, 0, 180))
+        d.text((W-nw-40, 160), NICK, font=nf, fill=(0, 0, 0, 110))
+        d.text((W-nw-40, 158), NICK, font=nf, fill=(255, 255, 255, 240))
     # 进度条底槽已去掉（改消耗式：见帧循环里的 draining 白条）
 
 def base_layer(theme, kicker_text):
@@ -252,7 +253,7 @@ def render_diagram(img, nodes, frac, theme, a):
     total_h = n*box_h + (n-1)*gap
     y0 = 580 + (720-total_h)//2
     bf = font(fsize, True)
-    panel_a = int(212*a)                                  # 半透明白磨砂底（照片微透）
+    panel_a = int(160*a)                                  # 更浅的半透明白磨砂底（用户 2026-06-14：再浅一点）
     for i in range(shown):
         by1 = y0 + i*(box_h+gap); by2 = by1+box_h
         # 真·alpha 合成的圆角白卡（不是实色填充）
@@ -281,10 +282,13 @@ def pop_line(img, text, fnt, cy, rgb, e, seg_a):
     if alpha <= 0: return
     m = ImageDraw.Draw(img)
     tw = int(m.textlength(text, font=fnt)); asc, desc = fnt.getmetrics(); th = asc+desc
-    pad = 16
-    sp = Image.new("RGBA", (tw+2*pad, th+2*pad), (0,0,0,0))
-    ImageDraw.Draw(sp).text((pad, pad), text, font=fnt, fill=rgb+(255,),
-                            stroke_width=5, stroke_fill=(0,0,0,255))  # 黑描边：亮风景上也清晰
+    pad = 26
+    # 文字无描边 + 柔和投影（模糊的暗影，不是描边毛边）保证亮背景上可读
+    shadow = Image.new("RGBA", (tw+2*pad, th+2*pad), (0,0,0,0))
+    ImageDraw.Draw(shadow).text((pad, pad), text, font=fnt, fill=(0,0,0,200))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(6))
+    sp = shadow
+    ImageDraw.Draw(sp).text((pad, pad), text, font=fnt, fill=rgb+(255,))  # 无描边
     if scale < 0.999:
         sp = sp.resize((max(1,int(sp.width*scale)), max(1,int(sp.height*scale))), Image.LANCZOS)
     if alpha < 0.999:
@@ -424,9 +428,9 @@ def main():
                 # 配图段：小标题(屏幕字) + 流程图配图
                 htxt = segs[i]["cap"]
                 if htxt:
-                    hf = font(48, True); hw = d.textlength(htxt, font=hf)
-                    d.text(((W-hw)/2, 492), htxt, font=hf, fill=(cr,cg,cb,calpha),
-                           stroke_width=3, stroke_fill=(0,0,0,calpha))
+                    hf = font(48, True); hw = d.textlength(htxt, font=hf); hx=(W-hw)/2
+                    d.text((hx, 495), htxt, font=hf, fill=(0,0,0,int(0.5*calpha)))  # 柔和投影，无描边
+                    d.text((hx, 492), htxt, font=hf, fill=(cr,cg,cb,calpha))
                 render_diagram(img, segs[i]["dnodes"], frac, theme, a)
             else:
                 # 大字幕：整行「弹出」（不是逐字打字）；多行时一行接一行整条弹
@@ -446,17 +450,17 @@ def main():
             oy = 1648 - len(oshown)*olh             # 满 4 行时 top≈1380，内容区到 ~1320，留 60px 不重叠
             orr,org,orb = theme["oral"]; oalpha = int(235*a)
             for k, ln in enumerate(oshown):
-                lw = d.textlength(ln, font=of)
-                d.text(((W-lw)/2, oy+k*olh), ln, font=of, fill=(orr,org,orb,oalpha),
-                       stroke_width=3, stroke_fill=(0,0,0,oalpha))
+                lw = d.textlength(ln, font=of); ox=(W-lw)/2; yy=oy+k*olh
+                d.text((ox, yy+3), ln, font=of, fill=(0,0,0,int(0.5*oalpha)))   # 柔和投影，无描边
+                d.text((ox, yy), ln, font=of, fill=(orr,org,orb,oalpha))
 
             # 进度条：消耗式——初始整条纯白，播过的部分变透明，白色逐渐缩短到全消失（用户 2026-06-14）
             fillw = 90 + (W-180)*min(t/T,1.0)
             if fillw < W-90:
                 d.rounded_rectangle([fillw,1720,W-90,1730], radius=5, fill=(255,255,255,235))
             nf = font(34, True)
-            d.text((90,1756), f"{i+1} / {n}", font=nf, fill=(255,255,255,235),
-                   stroke_width=2, stroke_fill=(0,0,0,180))
+            d.text((90,1759), f"{i+1} / {n}", font=nf, fill=(0,0,0,120))   # 淡投影，无描边
+            d.text((90,1756), f"{i+1} / {n}", font=nf, fill=(255,255,255,235))
 
             img.convert("RGB").save(os.path.join(fdir, f"f{fr:05d}.jpg"), quality=90)
             if fr % 200 == 0: print(f"[{theme_name}] 帧 {fr}/{nframes}")
