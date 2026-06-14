@@ -35,17 +35,19 @@ allowed-tools: Read, Bash, Glob, Grep
 
 ## 运行
 
-1. **定位引擎**：本 skill 同仓的 `tools/text2video.py`。解析 skill 真实路径找到仓根，例如：
+1. **定位启动器**：用跨平台启动器 `tools/render-run.sh`，它自己解析引擎路径 + 跨平台选/建 Python（见「依赖」节），**不要**直接 `python3 text2video.py`（PEP668 机器会失败）。cheat-render 是「目录符号链接」(SKILL.md 本身不是链接)，用 `cd -P` 物理穿透找仓根：
    ```bash
-   ENGINE="$(cd "$(dirname "$(readlink "$HOME/.claude/skills/cheat-render/SKILL.md" 2>/dev/null || echo "$HOME/.claude/skills/cheat-render/SKILL.md")")/../tools" && pwd)/text2video.py"
-   # 兜底：find ~ -path '*/cheat-on-content/tools/text2video.py' 2>/dev/null | head -1
+   # 仓内布局: cheat-on-content/{skills/cheat-render, tools/render-run.sh} → 从 skill 目录上跳两级
+   RUN="$(cd -P "$HOME/.claude/skills/cheat-render" 2>/dev/null && cd ../../tools 2>/dev/null && pwd)/render-run.sh"
+   # 兜底(copy 安装模式等)：[ -f "$RUN" ] || RUN="$(find "$HOME/.claude" "$HOME" -path '*/cheat-on-content/tools/render-run.sh' 2>/dev/null | head -1)"
    ```
-2. **跑**：
+2. **跑**（启动器透传参数给 text2video.py；首次在 PEP668 机器上会自动建 venv 装依赖）：
    ```bash
-   python3 "$ENGINE" <script.md> <out_dir> [--themes dark] [--voice zh-CN-XiaoxiaoNeural]
+   bash "$RUN" <script.md> <out_dir> [--themes dark] [--voice zh-CN-XiaoxiaoNeural]
    ```
    - 默认 `--themes dark`（主风格）。可选 `gradient` / `light`，逗号分隔多出几版。
    - 不传 `--voice` → 自动用**今日轮值音色**。
+   - Windows 原生无 bash → 用 Git Bash 跑 `bash render-run.sh ...`，或手动 `<venv>\Scripts\python.exe text2video.py ...`。
 3. **验收**：抽 1-2 帧确认（`ffmpeg -ss <t> -i out.mp4 -frames:v 1 chk.png` 后 Read），重点看流程图和字幕。
 4. **交付**：`open <out_dir>`（Mac）/ 直接给路径。**提醒用户成片不入 git**（见下）。
 
@@ -63,14 +65,19 @@ allowed-tools: Read, Bash, Glob, Grep
 按 `date.toordinal() % 4` **每天自动换一个**（用户 2026-06-13 定）。`--voice` 可手动钉某个。
 全部走 edge-tts（免费、无需 key、神经网络音色），断网时仅 macOS 回退本地 `say`。
 
-## 依赖（首次/新机器）
+## 依赖（跨平台，启动器自动处理）
 
-```bash
-pip install --user Pillow edge-tts      # 跨平台
-# ffmpeg：mac `brew install ffmpeg` / win `winget install ffmpeg` / linux `apt install ffmpeg`
-```
-中文字体：Mac 自带 Hiragino；Win 自带微软雅黑；Linux 需 `fonts-noto-cjk`（`apt install fonts-noto-cjk`）。
-引擎按平台自动挑字体，找不到逐级回退。
+Python 依赖 = **Pillow + edge-tts**。**正常不用手动装**——`render-run.sh` 会按平台自动选/建：
+- **mac / Windows**：一般系统 python 已能 `pip install --user Pillow edge-tts`，启动器探测到就直接用。
+- **PEP668 系统（Debian/Ubuntu/魅族 proot 等，pip 报 externally-managed）**：启动器**自动**在 `tools/.venv` 建专用 venv 装依赖（已 gitignore）。别用 `--break-system-packages` 污染系统 python。
+- 想手动预建也行：`python3 -m venv <dir> && <dir>/bin/pip install Pillow edge-tts`（Win 是 `<dir>\Scripts\pip`）；启动器会探测 `tools/.venv` / `$HOME/.venv-render` / `/root/cy/.venv-render`。
+
+系统级依赖（启动器**不**代装，缺了要自己装）：
+- **ffmpeg**：mac `brew install ffmpeg` / win `winget install ffmpeg` / linux `apt install ffmpeg`。
+- **python3-venv**：部分 Debian/Ubuntu 建 venv 需 `apt install python3-venv`。
+- **联网**：edge-tts 配音要联网；断网仅 macOS 回退本地 `say`。
+
+中文字体**无需安装**：引擎自带可商用 Noto Sans SC（`tools/fonts/NotoSansSC.ttf`），跨平台一致。仅当该字体缺失才回退系统字体（Mac Hiragino / Win 微软雅黑 / Linux Noto CJK）。
 
 ## ⚠️ 成片不入 git
 
