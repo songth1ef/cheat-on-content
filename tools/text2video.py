@@ -294,6 +294,43 @@ def pop_line(img, text, fnt, cy, rgb, e, seg_a):
         sp.putalpha(sp.split()[3].point(lambda v: int(v*alpha)))
     img.paste(sp, (int(W/2 - sp.width/2), int(cy + (th - sp.height)/2)), sp)
 
+def parse_title(md_path):
+    """取脚本 ## titles 第一条作封面标题；缺则用 source_title。"""
+    raw = open(md_path, encoding="utf-8").read()
+    m = re.search(r"##\s*titles?\b[^\n]*\n\s*1\s*[\.、]\s*([^\n]+)", raw)
+    if m: return clean(m.group(1).strip())
+    m2 = re.search(r"source_title:\s*(.+)", raw)
+    return clean(m2.group(1).strip()) if m2 else ""
+
+def make_cover(out_dir, title, bg_base, theme):
+    """专属封面卡：极简背景 + 标题大字 + 头像昵称。存 cover.png（抖音自定义封面用）。"""
+    if bg_base is not None:
+        img = bg_base.copy()
+    else:
+        img = Image.new("RGBA", (W, H), theme["bg"] + (255,))
+    d = ImageDraw.Draw(img, "RGBA")
+    # 右上角头像 + 昵称
+    av = avatar_img(); nf = font(30, True); nw = d.textlength(NICK, font=nf)
+    if av:
+        ax, ay = W - av.width - 40, 150; img.paste(av, (ax, ay), av)
+        d.text((ax - nw - 16, ay + (av.height - 36)//2), NICK, font=nf, fill=(255, 255, 255, 240))
+    else:
+        d.text((W - nw - 40, 158), NICK, font=nf, fill=(255, 255, 255, 240))
+    # 标题大字（自适应字号，居中偏上），纯白无阴影无描边
+    cr, cg, cb = theme["cap"]
+    tf, lines = None, []
+    for size in (118, 104, 92, 80, 70):
+        tf = font(size, True); lines = wrap(d, title, tf, 940)
+        if len(lines) * int(size*1.3) <= 1040: break
+    lh = int((tf.size if tf else 96) * 1.3); block_h = len(lines)*lh
+    y0 = (H - block_h)//2 - 40
+    for k, ln in enumerate(lines):
+        lw = d.textlength(ln, font=tf)
+        d.text(((W-lw)/2, y0 + k*lh), ln, font=tf, fill=(cr, cg, cb, 255))
+    p = os.path.join(out_dir, "cover.png")
+    img.convert("RGB").save(p)
+    return p
+
 def run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -478,6 +515,10 @@ def main():
              "-c:v","libx264","-r",str(fps),"-pix_fmt","yuv420p",
              "-c:a","aac","-b:a","192k","-movflags","+faststart", out_mp4])
         print(f"[done] {out_mp4}  {dur(out_mp4):.1f}s")
+        if theme_name == themes[0] and "--no-cover" not in sys.argv:  # 生成专属封面卡（一次）
+            ctitle = parse_title(md)
+            cp = make_cover(out_dir, ctitle, bg_base, theme)
+            print(f"[cover] {cp}")
 
     shutil.rmtree(work, ignore_errors=True)
     print("\n=== 产出 ===")
