@@ -92,8 +92,13 @@ def parse_segments(md_path):
     for line in body.splitlines():
         line = line.strip()
         if "[口播]" in line:
-            if cur: segs.append(cur)
-            cur = {"oral": clean(line.split("[口播]")[-1]), "cap": "", "diagram": ""}
+            txt = clean(line.split("[口播]")[-1])
+            # 连续 [口播] 合并进同一段（到出现 [屏幕字]/[图示] 才算该段完成）→ 避免没屏幕字的口播被当大字幕
+            if cur is not None and not cur["cap"] and not cur["diagram"]:
+                cur["oral"] = (cur["oral"] + " " + txt).strip()
+            else:
+                if cur: segs.append(cur)
+                cur = {"oral": txt, "cap": "", "diagram": ""}
         elif "[屏幕字]" in line and cur is not None:
             cur["cap"] = clean(line.split("[屏幕字]")[-1])
         elif "[图示]" in line and cur is not None:
@@ -140,20 +145,19 @@ THEMES = {
 }
 
 NICK = "歌贼王"
+AVATAR_FILE = os.path.join(_ENGINE_DIR, "brand", "avatar.jpg")  # 默认；main 按内容项目/--avatar 改
 _AVATAR = None
 def avatar_img():
-    """圆形头像（带白圈），算一次缓存。无则 False。"""
+    """圆形头像（无白圈，纯圆形剪裁），算一次缓存。无则 False。"""
     global _AVATAR
     if _AVATAR is not None: return _AVATAR
-    p = os.path.join(_ENGINE_DIR, "brand", "avatar.jpg")
-    if not os.path.exists(p):
+    if not AVATAR_FILE or not os.path.exists(AVATAR_FILE):
         _AVATAR = False; return False
     sz = 88
-    im = Image.open(p).convert("RGBA").resize((sz, sz), Image.LANCZOS)
+    im = Image.open(AVATAR_FILE).convert("RGBA").resize((sz, sz), Image.LANCZOS)
     mask = Image.new("L", (sz, sz), 0); ImageDraw.Draw(mask).ellipse([0, 0, sz-1, sz-1], fill=255)
     out = Image.new("RGBA", (sz, sz), (0, 0, 0, 0)); out.paste(im, (0, 0), mask)
-    ImageDraw.Draw(out).ellipse([1, 1, sz-2, sz-2], outline=(255, 255, 255, 235), width=3)
-    _AVATAR = out; return out
+    _AVATAR = out; return out                                  # 无白圈（用户 2026-06-14）
 
 def draw_chrome(img, theme, kicker_text):
     """画 kicker + 右上角头像昵称 + 进度条底槽（两种背景模式共用）"""
@@ -165,10 +169,8 @@ def draw_chrome(img, theme, kicker_text):
         ax, ay = W - av.width - 40, 150
         img.paste(av, (ax, ay), av)
         tx, ty = ax - nw - 16, ay + (av.height - 36) // 2
-        d.text((tx, ty+2), NICK, font=nf, fill=(0, 0, 0, 110))          # 淡投影，无描边
-        d.text((tx, ty), NICK, font=nf, fill=(255, 255, 255, 240))
+        d.text((tx, ty), NICK, font=nf, fill=(255, 255, 255, 240))      # 纯白无阴影
     else:
-        d.text((W-nw-40, 160), NICK, font=nf, fill=(0, 0, 0, 110))
         d.text((W-nw-40, 158), NICK, font=nf, fill=(255, 255, 255, 240))
     # 进度条底槽已去掉（改消耗式：见帧循环里的 draining 白条）
 
@@ -282,13 +284,10 @@ def pop_line(img, text, fnt, cy, rgb, e, seg_a):
     if alpha <= 0: return
     m = ImageDraw.Draw(img)
     tw = int(m.textlength(text, font=fnt)); asc, desc = fnt.getmetrics(); th = asc+desc
-    pad = 26
-    # 文字无描边 + 柔和投影（模糊的暗影，不是描边毛边）保证亮背景上可读
-    shadow = Image.new("RGBA", (tw+2*pad, th+2*pad), (0,0,0,0))
-    ImageDraw.Draw(shadow).text((pad, pad), text, font=fnt, fill=(0,0,0,200))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(6))
-    sp = shadow
-    ImageDraw.Draw(sp).text((pad, pad), text, font=fnt, fill=rgb+(255,))  # 无描边
+    pad = 10
+    # 纯白文字，无描边、无阴影、无边框（用户 2026-06-14：极简到极致）
+    sp = Image.new("RGBA", (tw+2*pad, th+2*pad), (0,0,0,0))
+    ImageDraw.Draw(sp).text((pad, pad), text, font=fnt, fill=rgb+(255,))
     if scale < 0.999:
         sp = sp.resize((max(1,int(sp.width*scale)), max(1,int(sp.height*scale))), Image.LANCZOS)
     if alpha < 0.999:
@@ -313,9 +312,17 @@ def main():
     if "--fps" in sys.argv: fps = int(sys.argv[sys.argv.index("--fps")+1])
     voice = sys.argv[sys.argv.index("--voice")+1] if "--voice" in sys.argv else todays_voice()
     kicker = sys.argv[sys.argv.index("--kicker")+1] if "--kicker" in sys.argv else "AI 文章 · 看完不费劲"
-    # 照片背景（周轮值）：默认引擎同目录 backgrounds/；--no-bg 关闭；--bg-day 0..6 钉星期
-    bg_dir = sys.argv[sys.argv.index("--bg-dir")+1] if "--bg-dir" in sys.argv \
-             else os.path.join(os.path.dirname(os.path.abspath(__file__)), "backgrounds")
+    # 头像/背景默认从「内容项目」assets/ 读（私人素材放私有内容仓，不进公开工具仓）：
+    #   优先级 = 命令行参数 > 当前内容项目 assets/ > 引擎自带 tools/。
+    global AVATAR_FILE
+    _cwd_av = os.path.join(os.getcwd(), "assets", "brand", "avatar.jpg")
+    if "--avatar" in sys.argv: AVATAR_FILE = sys.argv[sys.argv.index("--avatar")+1]
+    elif os.path.exists(_cwd_av): AVATAR_FILE = _cwd_av
+    # 照片背景（周轮值）：--bg-dir > 内容项目 assets/backgrounds/ > 引擎自带 tools/backgrounds/
+    _cwd_bg = os.path.join(os.getcwd(), "assets", "backgrounds")
+    if "--bg-dir" in sys.argv:   bg_dir = sys.argv[sys.argv.index("--bg-dir")+1]
+    elif os.path.isdir(_cwd_bg): bg_dir = _cwd_bg
+    else: bg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backgrounds")
     bg_day = int(sys.argv[sys.argv.index("--bg-day")+1]) if "--bg-day" in sys.argv else None
     bg_loaded = None if "--no-bg" in sys.argv else load_bg_base(bg_dir, bg_day)
     bg_base = bg_loaded[0] if bg_loaded else None
@@ -390,7 +397,7 @@ def main():
         td = ImageDraw.Draw(base)
         seg_lines = []
         for s in segs:
-            cap = s["cap"] or s["oral"]
+            cap = s["cap"]                       # 没屏幕字就不画大字幕（不再拿口播兜底成字墙）
             for size in (96,84,72,62):
                 cf = font(size, True); cl = wrap(td, cap, cf, 900)
                 if len(cl)*int(size*1.32) <= 720: break
@@ -428,9 +435,8 @@ def main():
                 # 配图段：小标题(屏幕字) + 流程图配图
                 htxt = segs[i]["cap"]
                 if htxt:
-                    hf = font(48, True); hw = d.textlength(htxt, font=hf); hx=(W-hw)/2
-                    d.text((hx, 495), htxt, font=hf, fill=(0,0,0,int(0.5*calpha)))  # 柔和投影，无描边
-                    d.text((hx, 492), htxt, font=hf, fill=(cr,cg,cb,calpha))
+                    hf = font(48, True); hw = d.textlength(htxt, font=hf)
+                    d.text(((W-hw)/2, 492), htxt, font=hf, fill=(cr,cg,cb,calpha))  # 纯白无阴影无描边
                 render_diagram(img, segs[i]["dnodes"], frac, theme, a)
             else:
                 # 大字幕：整行「弹出」（不是逐字打字）；多行时一行接一行整条弹
@@ -450,17 +456,15 @@ def main():
             oy = 1648 - len(oshown)*olh             # 满 4 行时 top≈1380，内容区到 ~1320，留 60px 不重叠
             orr,org,orb = theme["oral"]; oalpha = int(235*a)
             for k, ln in enumerate(oshown):
-                lw = d.textlength(ln, font=of); ox=(W-lw)/2; yy=oy+k*olh
-                d.text((ox, yy+3), ln, font=of, fill=(0,0,0,int(0.5*oalpha)))   # 柔和投影，无描边
-                d.text((ox, yy), ln, font=of, fill=(orr,org,orb,oalpha))
+                lw = d.textlength(ln, font=of)
+                d.text(((W-lw)/2, oy+k*olh), ln, font=of, fill=(orr,org,orb,oalpha))  # 纯白无阴影无描边
 
             # 进度条：消耗式——初始整条纯白，播过的部分变透明，白色逐渐缩短到全消失（用户 2026-06-14）
             fillw = 90 + (W-180)*min(t/T,1.0)
             if fillw < W-90:
                 d.rounded_rectangle([fillw,1720,W-90,1730], radius=5, fill=(255,255,255,235))
             nf = font(34, True)
-            d.text((90,1759), f"{i+1} / {n}", font=nf, fill=(0,0,0,120))   # 淡投影，无描边
-            d.text((90,1756), f"{i+1} / {n}", font=nf, fill=(255,255,255,235))
+            d.text((90,1756), f"{i+1} / {n}", font=nf, fill=(255,255,255,235))  # 纯白无阴影
 
             img.convert("RGB").save(os.path.join(fdir, f"f{fr:05d}.jpg"), quality=90)
             if fr % 200 == 0: print(f"[{theme_name}] 帧 {fr}/{nframes}")
