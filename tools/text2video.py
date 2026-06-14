@@ -129,8 +129,8 @@ def take_chars(lines, k):
 
 THEMES = {
     "dark":     dict(bg=(14,17,22),  grad=None,                 kicker=(120,130,145),
-                     cap=(255,212,0), oral=(240,242,245), bar=(255,212,0),
-                     glow=(255,212,0), dia_text=(245,245,245), dia_fill=(30,34,40)),
+                     cap=(255,255,255), oral=(245,245,245), bar=(255,255,255),
+                     glow=(255,255,255), dia_text=(245,245,245), dia_fill=(30,34,40)),
     "gradient": dict(bg=None, grad=((26,18,64),(8,10,28)),      kicker=(150,200,255),
                      cap=(255,255,255), oral=(200,212,228), bar=(110,231,255),
                      glow=(110,231,255), dia_text=(245,245,245), dia_fill=(34,30,66)),
@@ -158,9 +158,7 @@ def avatar_img():
 def draw_chrome(img, theme, kicker_text):
     """画 kicker + 右上角头像昵称 + 进度条底槽（两种背景模式共用）"""
     d = ImageDraw.Draw(img, "RGBA")
-    kf = font(40, True); kw = d.textlength(kicker_text, font=kf)
-    d.text(((W-kw)/2, 188), kicker_text, font=kf, fill=theme["kicker"],
-           stroke_width=2, stroke_fill=(0, 0, 0, 170))
+    # 顶部描述行已去掉（用户 2026-06-14：极简，不要 "AI 文章·看完不费劲"）
     # 右上角：头像 + 昵称「歌贼王」
     av = avatar_img(); nf = font(30, True); nw = d.textlength(NICK, font=nf)
     if av:
@@ -171,7 +169,7 @@ def draw_chrome(img, theme, kicker_text):
     else:
         d.text((W - nw - 40, 158), NICK, font=nf, fill=(255, 255, 255, 240),
                stroke_width=2, stroke_fill=(0, 0, 0, 180))
-    d.rounded_rectangle([90, 1720, W-90, 1730], radius=5, fill=(255, 255, 255, 40))
+    # 进度条底槽已去掉（改消耗式：见帧循环里的 draining 白条）
 
 def base_layer(theme, kicker_text):
     """纯色/渐变静态层：背景 + chrome（每主题算一次，无照片时用）"""
@@ -240,35 +238,39 @@ def glow_sprite(color):
                 if a: px[x, y] = (cr, cg, cb, a)
     return s
 
-def render_diagram(d, nodes, frac, theme, a):
-    """竖向流程图：方框 + 下箭头，随 frac 逐个出现。a=段透明度(0..1)"""
+def render_diagram(img, nodes, frac, theme, a):
+    """竖向流程图：半透明白磨砂卡片 + 深灰无描边字 + 白连接箭头，随 frac 逐个出现。
+    极简白风（用户 2026-06-14：纯黑底不好看、文字不要黑毛边）。a=段透明度(0..1)。"""
+    d = ImageDraw.Draw(img, "RGBA")
     n = len(nodes)
     if n == 0: return
     shown = max(1, math.ceil(n*frac))
-    box_w = 860; x1 = (W-box_w)//2; x2 = x1+box_w
+    box_w = 860; x1 = (W-box_w)//2
     gap = 46
     box_h = int(min(120, (720 - gap*(n-1))/n))
     fsize = max(26, min(40, box_h-44))
     total_h = n*box_h + (n-1)*gap
     y0 = 580 + (720-total_h)//2
-    br,bgc,bb = theme["bar"]; tr,tg,tb = theme["dia_text"]; fr,fg,fb = theme["dia_fill"]
     bf = font(fsize, True)
+    panel_a = int(212*a)                                  # 半透明白磨砂底（照片微透）
     for i in range(shown):
         by1 = y0 + i*(box_h+gap); by2 = by1+box_h
-        d.rounded_rectangle([x1,by1,x2,by2], radius=22,
-                            fill=(fr,fg,fb,255),
-                            outline=(br,bgc,bb,255), width=3)
+        # 真·alpha 合成的圆角白卡（不是实色填充）
+        tile = Image.new("RGBA", (box_w, box_h), (0, 0, 0, 0))
+        ImageDraw.Draw(tile).rounded_rectangle([0, 0, box_w-1, box_h-1], radius=24,
+                                               fill=(255, 255, 255, panel_a))
+        img.alpha_composite(tile, (x1, by1))
+        # 深灰字，无描边（白底上够清晰）
         lines = wrap(d, nodes[i], bf, box_w-52)
         lh = int(fsize*1.24); th = len(lines)*lh
         ty = by1 + (box_h-th)//2
         for k, ln in enumerate(lines):
             lw = d.textlength(ln, font=bf)
-            d.text(((W-lw)/2, ty+k*lh), ln, font=bf, fill=(tr,tg,tb,int(245*a)))
-        if i < shown-1 and i < n-1:
-            ax = W//2; ay2 = by2+gap-6
-            d.line([ax, by2+6, ax, ay2-8], fill=(br,bgc,bb,int(235*a)), width=4)
-            d.polygon([(ax-13,ay2-13),(ax+13,ay2-13),(ax,ay2)],
-                      fill=(br,bgc,bb,int(235*a)))
+            d.text(((W-lw)/2, ty+k*lh), ln, font=bf, fill=(34, 38, 45, int(248*a)))
+        if i < shown-1 and i < n-1:                       # 白色连接箭头（配极简白）
+            ax = W//2; ay2 = by2+gap-6; aw = (255, 255, 255, int(235*a))
+            d.line([ax, by2+6, ax, ay2-8], fill=aw, width=5)
+            d.polygon([(ax-13, ay2-13), (ax+13, ay2-13), (ax, ay2)], fill=aw)
 
 def pop_line(img, text, fnt, cy, rgb, e, seg_a):
     """整行一次性「弹出」：缩放(0.72→1)+淡入，e=本行入场进度(0..1)。不是逐字打字。"""
@@ -425,7 +427,7 @@ def main():
                     hf = font(48, True); hw = d.textlength(htxt, font=hf)
                     d.text(((W-hw)/2, 492), htxt, font=hf, fill=(cr,cg,cb,calpha),
                            stroke_width=3, stroke_fill=(0,0,0,calpha))
-                render_diagram(d, segs[i]["dnodes"], frac, theme, a)
+                render_diagram(img, segs[i]["dnodes"], frac, theme, a)
             else:
                 # 大字幕：整行「弹出」（不是逐字打字）；多行时一行接一行整条弹
                 lh = int(csize*1.32); nlines = len(clines)
@@ -447,12 +449,13 @@ def main():
                 d.text(((W-lw)/2, oy+k*olh), ln, font=of, fill=(orr,org,orb,oalpha),
                        stroke_width=3, stroke_fill=(0,0,0,oalpha))
 
-            # 进度条（全局连续）
-            br,bg_,bb = theme["bar"]
+            # 进度条：消耗式——初始整条纯白，播过的部分变透明，白色逐渐缩短到全消失（用户 2026-06-14）
             fillw = 90 + (W-180)*min(t/T,1.0)
-            d.rounded_rectangle([90,1720,fillw,1730], radius=5, fill=(br,bg_,bb,255))
+            if fillw < W-90:
+                d.rounded_rectangle([fillw,1720,W-90,1730], radius=5, fill=(255,255,255,235))
             nf = font(34, True)
-            d.text((90,1756), f"{i+1} / {n}", font=nf, fill=theme["kicker"])
+            d.text((90,1756), f"{i+1} / {n}", font=nf, fill=(255,255,255,235),
+                   stroke_width=2, stroke_fill=(0,0,0,180))
 
             img.convert("RGB").save(os.path.join(fdir, f"f{fr:05d}.jpg"), quality=90)
             if fr % 200 == 0: print(f"[{theme_name}] 帧 {fr}/{nframes}")
