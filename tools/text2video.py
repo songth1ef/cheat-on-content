@@ -439,10 +439,11 @@ def main():
                     e = max(0.0, min((local-line_start)/POP, 1.0))
                     pop_line(img, ln, cf, y0+k*lh, (cr,cg,cb), e, a)
 
-            # 底部口播字幕
-            olh = int(50*1.34); total_o = sum(len(l) for l in olines)
-            oshown = take_chars(olines, math.ceil(total_o*frac))
-            oy = 1640 - len(olines)*olh
+            # 底部口播字幕：最多 4 行（滑动窗口，只显示最近几行）+ 底部锚定，绝不压上方内容区
+            olh = int(50*1.34); MAX_ORAL = 4
+            total_o = sum(len(l) for l in olines)
+            oshown = take_chars(olines, math.ceil(total_o*frac))[-MAX_ORAL:]
+            oy = 1648 - len(oshown)*olh             # 满 4 行时 top≈1380，内容区到 ~1320，留 60px 不重叠
             orr,org,orb = theme["oral"]; oalpha = int(235*a)
             for k, ln in enumerate(oshown):
                 lw = d.textlength(ln, font=of)
