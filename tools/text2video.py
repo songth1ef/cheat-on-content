@@ -13,7 +13,7 @@ text2video.py v2 — 把 video-zh.md 风格分段脚本（[口播]/[画面]/[屏
       [--voice zh-CN-XxxNeural] [--no-bg | --bg-day 0..6 | --bg-dir <path>] [--kicker <text>]
 """
 import os, re, sys, math, glob, datetime, platform, subprocess, tempfile, shutil
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageOps, ImageChops
 
 _SYS = platform.system()  # Darwin / Windows / Linux
 
@@ -156,6 +156,7 @@ def avatar_img():
     sz = 88
     im = Image.open(AVATAR_FILE).convert("RGBA").resize((sz, sz), Image.LANCZOS)
     mask = Image.new("L", (sz, sz), 0); ImageDraw.Draw(mask).ellipse([0, 0, sz-1, sz-1], fill=255)
+    mask = ImageChops.multiply(mask, im.split()[3])           # 圆形 ∩ 源图 alpha：透明头像的镂空区透出背景
     out = Image.new("RGBA", (sz, sz), (0, 0, 0, 0)); out.paste(im, (0, 0), mask)
     _AVATAR = out; return out                                  # 无白圈（用户 2026-06-14）
 
@@ -352,9 +353,11 @@ def main():
     # 头像/背景默认从「内容项目」assets/ 读（私人素材放私有内容仓，不进公开工具仓）：
     #   优先级 = 命令行参数 > 当前内容项目 assets/ > 引擎自带 tools/。
     global AVATAR_FILE
-    _cwd_av = os.path.join(os.getcwd(), "assets", "brand", "avatar.jpg")
+    _cwd_dir = os.path.join(os.getcwd(), "assets", "brand")
+    _cwd_av = next((os.path.join(_cwd_dir, f) for f in ("avatar.png", "avatar.jpg")
+                    if os.path.exists(os.path.join(_cwd_dir, f))), None)  # 透明 png 优先于 jpg
     if "--avatar" in sys.argv: AVATAR_FILE = sys.argv[sys.argv.index("--avatar")+1]
-    elif os.path.exists(_cwd_av): AVATAR_FILE = _cwd_av
+    elif _cwd_av: AVATAR_FILE = _cwd_av
     # 照片背景（周轮值）：--bg-dir > 内容项目 assets/backgrounds/ > 引擎自带 tools/backgrounds/
     _cwd_bg = os.path.join(os.getcwd(), "assets", "backgrounds")
     if "--bg-dir" in sys.argv:   bg_dir = sys.argv[sys.argv.index("--bg-dir")+1]
